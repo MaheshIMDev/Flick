@@ -97,6 +97,7 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
 
   // ==================== ANSWER CALL ====================
   socket.on('webrtc_answer_call', async (data: { to: string; conversationId: string }) => {
+    
     try {
       const answeredAt = new Date();
       console.log(`✅ Call answered by ${userId}`);
@@ -147,7 +148,9 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
 
   // ==================== ICE CANDIDATES - ✅ FIXED! ====================
   socket.on('webrtc_ice_candidate', (data: { candidate: any; to: string; conversationId: string }) => {
-    console.log('🧊 ICE from', userId, 'to', data.to, 'type:', data.candidate?.type);
+    console.log('🧊 ICE from', userId, 'to', data.to);
+  console.log('📦 Full candidate object:', JSON.stringify(data.candidate));
+  
     
     // ✅ Validate candidate exists
     if (!data.candidate) {
@@ -161,6 +164,8 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
       from: userId,
       conversationId: data.conversationId
     });
+    
+    console.log('✅ ICE relayed');
     
     console.log('✅ ICE candidate relayed successfully');
   });
