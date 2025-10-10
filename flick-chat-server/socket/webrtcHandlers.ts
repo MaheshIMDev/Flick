@@ -17,23 +17,19 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
       const initiatedAt = new Date();
       console.log(`📞 Call offer from ${userId} to ${data.to}`);
 
-      // ✅ CHECK FOR RACE CONDITION - Is the other user also calling?
       const existingCallFromOtherUser = await RedisService.cacheGet<any>(`call:${data.to}:${userId}`);
       
       if (existingCallFromOtherUser) {
-        console.log(`⚡ Race condition detected! Both users calling each other`);
-        
-        // RULE: Lower user ID wins (deterministic)
+        console.log(`⚡ Race condition detected!`);
         const shouldWin = userId < data.to;
         
         if (shouldWin) {
-          console.log(`✅ ${userId} wins the race - proceeding with call`);
-          // Cancel the other user's call
+          console.log(`✅ ${userId} wins the race`);
           io.to(`user:${data.to}`).emit('call:race_lost', {
             message: 'Call already in progress'
           });
         } else {
-          console.log(`❌ ${userId} loses the race - canceling this call`);
+          console.log(`❌ ${userId} loses the race`);
           socket.emit('call:race_lost', {
             message: 'Call already in progress'
           });
@@ -41,7 +37,6 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         }
       }
 
-      // ✅ CHECK: Is there already an active call between these users?
       const { data: activeCall } = await supabase
         .from('call_sessions')
         .select('id, call_status')
@@ -59,7 +54,6 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         return;
       }
 
-      // Create call session in database
       const { data: callSession, error } = await supabase
         .from('call_sessions')
         .insert({
@@ -77,7 +71,6 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         return;
       }
 
-      // Store in Redis (60 seconds for missed call detection)
       await RedisService.cacheSet(`call:${userId}:${data.to}`, {
         sessionId: callSession.id,
         callerId: userId,
@@ -86,7 +79,6 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         initiatedAt: initiatedAt.getTime()
       }, 60);
 
-      // Send to receiver
       io.to(`user:${data.to}`).emit('webrtc_incoming_call', {
         from: userId,
         callType: data.callType,
@@ -109,7 +101,6 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
       const answeredAt = new Date();
       console.log(`✅ Call answered by ${userId}`);
 
-      // Get session from Redis
       const callData = await RedisService.cacheGet<any>(`call:${data.to}:${userId}`);
 
       if (!callData?.sessionId) {
@@ -117,7 +108,6 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         return;
       }
 
-      // Update database
       await supabase
         .from('call_sessions')
         .update({
@@ -126,11 +116,9 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         })
         .eq('id', callData.sessionId);
 
-      // Update Redis with longer expiry (2 hours max call duration)
       callData.answeredAt = answeredAt.getTime();
       await RedisService.cacheSet(`call:${data.to}:${userId}`, callData, 7200);
 
-      // Send synchronized start time to both users
       const callStartTime = answeredAt.getTime();
 
       io.to(`user:${data.to}`).emit('call:connected', {
@@ -157,12 +145,24 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
     });
   });
 
-  // ==================== ICE CANDIDATES ====================
+  // ==================== ICE CANDIDATES - ✅ FIXED! ====================
   socket.on('webrtc_ice_candidate', (data: { candidate: any; to: string; conversationId: string }) => {
+    console.log('🧊 ICE from', userId, 'to', data.to, 'type:', data.candidate?.type);
+    
+    // ✅ Validate candidate exists
+    if (!data.candidate) {
+      console.error('❌ ICE candidate is undefined! Cannot relay.');
+      return;
+    }
+    
+    // ✅ Relay to target user
     io.to(`user:${data.to}`).emit('webrtc_ice_candidate', {
       candidate: data.candidate,
       from: userId,
+      conversationId: data.conversationId
     });
+    
+    console.log('✅ ICE candidate relayed successfully');
   });
 
   // ==================== REJECT CALL ====================
@@ -173,11 +173,10 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
       const callData = await RedisService.cacheGet<any>(`call:${data.to}:${userId}`);
 
       if (!callData?.sessionId) {
-        console.log('⚠️ No active call found - already ended');
+        console.log('⚠️ No active call found');
         return;
       }
 
-      // ✅ CHECK: Get current status
       const { data: existingCall } = await supabase
         .from('call_sessions')
         .select('call_status')
@@ -189,13 +188,11 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         return;
       }
 
-      // ✅ CHECK: Only reject if still ringing
       if (existingCall.call_status !== 'ringing') {
-        console.log(`⚠️ Call already ${existingCall.call_status} - ignoring reject`);
+        console.log(`⚠️ Call already ${existingCall.call_status}`);
         return;
       }
 
-      // ✅ UPDATE with condition check (atomic operation)
       await supabase
         .from('call_sessions')
         .update({
@@ -227,18 +224,16 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
     try {
       console.log(`📵 Call end request from ${userId}`);
 
-      // Try both directions
       let callData = await RedisService.cacheGet<any>(`call:${userId}:${data.to}`);
       if (!callData) {
         callData = await RedisService.cacheGet<any>(`call:${data.to}:${userId}`);
       }
 
       if (!callData?.sessionId) {
-        console.log('⚠️ No active call found - already ended');
+        console.log('⚠️ No active call found');
         return;
       }
 
-      // ✅ CHECK: Get current call status
       const { data: existingCall } = await supabase
         .from('call_sessions')
         .select('call_status, answered_at')
@@ -250,9 +245,8 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         return;
       }
 
-      // ✅ CHECK: Is call already ended?
       if (['ended', 'declined', 'missed'].includes(existingCall.call_status)) {
-        console.log(`⚠️ Call already ${existingCall.call_status} - ignoring end request`);
+        console.log(`⚠️ Call already ${existingCall.call_status}`);
         return;
       }
 
@@ -262,35 +256,29 @@ export function registerWebRTCHandlers(io: SocketIOServer, socket: Authenticated
         ended_by_user_id: userId
       };
 
-      // Calculate duration if call was answered
       if (existingCall.answered_at && data.callDuration && data.callDuration > 0) {
         updateData.duration_seconds = Math.floor(data.callDuration);
         updateData.end_reason = 'completed';
         console.log(`✅ Call completed: ${data.callDuration}s`);
       } else if (existingCall.answered_at) {
-        // Answered but no duration (very short call)
         updateData.duration_seconds = 0;
         updateData.end_reason = 'completed';
         console.log(`✅ Call completed: 0s`);
       } else {
-        // Never answered - cancelled by caller
         updateData.duration_seconds = null;
         updateData.end_reason = 'cancelled';
-        console.log(`🚫 Call cancelled before answer`);
+        console.log(`🚫 Call cancelled`);
       }
 
-      // ✅ UPDATE with condition check (atomic operation)
       await supabase
         .from('call_sessions')
         .update(updateData)
         .eq('id', callData.sessionId)
         .in('call_status', ['ringing', 'active']);
 
-      // Clean up Redis
       await RedisService.cacheDel(`call:${userId}:${data.to}`);
       await RedisService.cacheDel(`call:${data.to}:${userId}`);
 
-      // Notify peer
       const peerSockets = await RedisService.getUserSockets(data.to);
       peerSockets.forEach(socketId => {
         io.to(socketId).emit('webrtc_call_ended', { from: userId });
