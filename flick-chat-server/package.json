@@ -2,7 +2,7 @@
   "name": "securechat-server",
   "version": "1.0.0",
   "description": "SecureChat Backend Server with E2EE",
-  "main": "server.ts",
+  "main": "dist/server.js",
   "keywords": [
     "chat",
     "e2ee",
@@ -12,9 +12,9 @@
   "author": "",
   "license": "ISC",
   "scripts": {
-    "start": "ts-node -r tsconfig-paths/register server.ts",
+    "start": "node dist/server.js",
     "dev": "nodemon --watch './**/*.ts' --exec 'ts-node -r tsconfig-paths/register' server.ts",
-    "build": "tsc",
+    "build": "tsc && tsc-alias",
     "test": "cross-env NODE_ENV=test jest --runInBand --detectOpenHandles",
     "test:watch": "cross-env NODE_ENV=test jest --watch",
     "test:coverage": "cross-env NODE_ENV=test jest --coverage --runInBand",
@@ -51,10 +51,11 @@
     "supertest": "^7.1.4",
     "ts-jest": "^29.4.4",
     "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.10",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }
