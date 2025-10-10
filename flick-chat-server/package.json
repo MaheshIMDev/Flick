@@ -1,19 +1,60 @@
 {
-  "name": "flick-chat-server",
+  "name": "securechat-server",
   "version": "1.0.0",
-  "main": "server.js",
+  "description": "SecureChat Backend Server with E2EE",
+  "main": "server.ts",
+  "keywords": [
+    "chat",
+    "e2ee",
+    "websocket",
+    "supabase"
+  ],
+  "author": "",
+  "license": "ISC",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "ts-node -r tsconfig-paths/register server.ts",
+    "dev": "nodemon --watch './**/*.ts' --exec 'ts-node -r tsconfig-paths/register' server.ts",
+    "build": "tsc",
+    "test": "cross-env NODE_ENV=test jest --runInBand --detectOpenHandles",
+    "test:watch": "cross-env NODE_ENV=test jest --watch",
+    "test:coverage": "cross-env NODE_ENV=test jest --coverage --runInBand",
+    "test:unit": "cross-env NODE_ENV=test jest tests/unit --runInBand",
+    "test:integration": "cross-env NODE_ENV=test jest tests/integration --runInBand",
+    "test:e2e": "cross-env NODE_ENV=test jest tests/e2e --runInBand",
+    "test:verbose": "cross-env NODE_ENV=test jest --verbose --runInBand"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.57.4",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "@supabase/supabase-js": "^2.58.0",
+    "@upstash/redis": "^1.35.5",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.2",
+    "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "socket.io": "^4.8.1"
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "libsodium-wrappers": "^0.7.15",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.3",
+    "@types/ioredis": "^5.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/libsodium-wrappers": "^0.7.14",
+    "@types/node": "^24.6.2",
+    "@types/supertest": "^6.0.3",
+    "cross-env": "^7.0.3",
+    "jest": "^30.2.0",
+    "nodemon": "^3.1.9",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.4",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
