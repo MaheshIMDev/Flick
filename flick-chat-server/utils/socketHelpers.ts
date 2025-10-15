@@ -1,5 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { supabase } from './supabaseClient';
+import { RedisService } from './redisClient';
 
 export async function broadcastToFriends(
   io: SocketIOServer,
@@ -14,11 +15,27 @@ export async function broadcastToFriends(
       .eq('user_id', userId)
       .eq('status', 'active');
 
-    friends?.forEach((friend: any) => {
-      io.to(`user:${friend.connected_user_id}`).emit(event, data);
-    });
+    if (!friends || friends.length === 0) {
+      console.log(`⚠️ No friends found for user ${userId}`);
+      return;
+    }
+
+    console.log(`📡 Broadcasting ${event} to ${friends.length} friends of user ${userId}`);
+
+    // ✅ Check online status for each friend
+    for (const friend of friends) {
+      const friendId = friend.connected_user_id;
+      const isOnline = await RedisService.isUserOnline(friendId);
+      
+      if (isOnline) {
+        io.to(`user:${friendId}`).emit(event, data);
+        console.log(`  ✅ Sent ${event} to friend ${friendId} (online)`);
+      } else {
+        console.log(`  ⏭️  Skipped friend ${friendId} (offline)`);
+      }
+    }
   } catch (error) {
-    console.error('broadcastToFriends error:', error);
+    console.error('❌ broadcastToFriends error:', error);
   }
 }
 
@@ -42,7 +59,6 @@ export function generateMessageId(): string {
 }
 
 export function sanitizeMessage(content: string): string {
-  // Basic XSS prevention
   return content
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

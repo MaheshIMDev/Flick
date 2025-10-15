@@ -1,7 +1,7 @@
 import Redis from 'ioredis';
 import { supabase } from './supabaseClient';
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://default:AVV3AAIncDJmNmQ2YmU2NzU0MjY0NmZjYmJiMjBhZGZiNDU4Yzk4ZXAyMjE4Nzk@able-weasel-21879.upstash.io:6379';
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 // Redis options with TLS support for Upstash
 const redisOptions: any = {
@@ -43,14 +43,20 @@ redis.on('close', () => {
 
 // Redis Service with PostgreSQL fallback
 export class RedisService {
-  // ==================== USER ONLINE STATUS ====================
+  // ==================== USER ONLINE STATUS (USING REDIS SETS) ====================
   
   static async setUserOnline(userId: string, ttl: number = 30) {
     try {
       if (!isRedisAvailable) throw new Error('Redis unavailable');
       
+      // ✅ Add to online users SET
+      await redis.sadd('online_users', userId);
+      
+      // Keep individual key with TTL for auto-cleanup
       await redis.setex(`user:${userId}:online`, ttl, 'true');
       await redis.set(`user:${userId}:last_seen`, Date.now().toString());
+      
+      console.log(`✅ Redis: User ${userId} marked ONLINE (TTL: ${ttl}s)`);
     } catch (error) {
       console.error('Redis setUserOnline failed, using DB fallback');
       await supabase
@@ -67,8 +73,13 @@ export class RedisService {
     try {
       if (!isRedisAvailable) throw new Error('Redis unavailable');
       
+      // ✅ Remove from online users SET
+      await redis.srem('online_users', userId);
+      
       await redis.del(`user:${userId}:online`);
       await redis.set(`user:${userId}:last_seen`, Date.now().toString());
+      
+      console.log(`❌ Redis: User ${userId} marked OFFLINE`);
     } catch (error) {
       console.error('Redis setUserOffline failed, using DB fallback');
       await supabase
@@ -85,8 +96,10 @@ export class RedisService {
     try {
       if (!isRedisAvailable) throw new Error('Redis unavailable');
       
-      const online = await redis.get(`user:${userId}:online`);
-      return online === 'true';
+      // ✅ Check if user is in online users SET
+      const isInSet = await redis.sismember('online_users', userId);
+      console.log(`🔍 Redis check: User ${userId} is ${isInSet ? 'ONLINE' : 'OFFLINE'}`);
+      return isInSet === 1;
     } catch (error) {
       // Fallback to database
       const { data } = await supabase
@@ -96,6 +109,18 @@ export class RedisService {
         .single();
       
       return data?.is_online || false;
+    }
+  }
+
+  static async getAllOnlineUsers(): Promise<string[]> {
+    try {
+      if (!isRedisAvailable) return [];
+      
+      const onlineUsers = await redis.smembers('online_users');
+      console.log(`📊 Total online users: ${onlineUsers.length}`);
+      return onlineUsers;
+    } catch (error) {
+      return [];
     }
   }
 
@@ -229,7 +254,7 @@ export class RedisService {
     windowSeconds: number
   ): Promise<boolean> {
     try {
-      if (!isRedisAvailable) return true; // Allow if Redis down
+      if (!isRedisAvailable) return true;
       
       const key = `ratelimit:${userId}:${action}`;
       const current = await redis.incr(key);
@@ -240,7 +265,7 @@ export class RedisService {
       
       return current <= limit;
     } catch (error) {
-      return true; // Allow on error
+      return true;
     }
   }
 
@@ -291,7 +316,7 @@ export class RedisService {
         `queue:messages:${conversationId}`, 
         JSON.stringify(message)
       );
-      await redis.expire(`queue:messages:${conversationId}`, 300); // 5 min TTL
+      await redis.expire(`queue:messages:${conversationId}`, 300);
     } catch (error) {
       console.error('Redis queueMessage failed');
     }
