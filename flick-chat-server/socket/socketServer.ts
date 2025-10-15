@@ -41,7 +41,6 @@ export function initializeSocketIO(httpServer: HTTPServer) {
 
     try {
       // ==================== SETUP ====================
-      
       // Mark user as online
       await RedisService.setUserOnline(userId, 30);
       await RedisService.addUserSocket(userId, socket.id);
@@ -62,11 +61,15 @@ export function initializeSocketIO(httpServer: HTTPServer) {
         });
       }
 
-      // Broadcast online status to friends
+      console.log(`🟢 User ${userId} marked as ONLINE in Redis`);
+
+      // ✅ BROADCAST ONLINE STATUS TO FRIENDS
       await broadcastToFriends(io, userId, 'friend_online', {
         userId,
         timestamp: Date.now(),
       });
+
+      console.log(`📡 Broadcasted online status for user ${userId}`);
 
       // Send user their unread counts
       if (conversations) {
@@ -82,13 +85,11 @@ export function initializeSocketIO(httpServer: HTTPServer) {
       }
 
       // ==================== REGISTER HANDLERS ====================
-      
       registerMessageHandlers(io, socket);
       registerPresenceHandlers(io, socket);
       registerWebRTCHandlers(io, socket);
 
       // ==================== JOIN CONVERSATION ====================
-      
       socket.on('join_conversation', async ({ conversationId }: { conversationId: string }) => {
         try {
           // Verify user is participant
@@ -124,40 +125,50 @@ export function initializeSocketIO(httpServer: HTTPServer) {
       });
 
       // ==================== LEAVE CONVERSATION ====================
-      
       socket.on('leave_conversation', ({ conversationId }: { conversationId: string }) => {
         socket.leave(`conversation:${conversationId}`);
         socket.emit('left_conversation', { conversationId });
       });
 
       // ==================== GET ONLINE FRIENDS ====================
-      
       socket.on('get_online_friends', async () => {
         try {
+          console.log(`📞 User ${userId} requesting online friends`);
+
           const { data: friends } = await supabase
             .from('user_connections')
             .select('connected_user_id')
             .eq('user_id', userId)
             .eq('status', 'active');
 
-          if (!friends) return;
+          if (!friends || friends.length === 0) {
+            socket.emit('online_friends', []);
+            return;
+          }
 
           const onlineStatus = await Promise.all(
-            friends.map(async (friend: any) => ({
-              userId: friend.connected_user_id,
-              isOnline: await RedisService.isUserOnline(friend.connected_user_id),
-              lastSeen: await RedisService.getLastSeen(friend.connected_user_id),
-            }))
+            friends.map(async (friend: any) => {
+              const friendId = friend.connected_user_id;
+              const isOnline = await RedisService.isUserOnline(friendId);
+              const lastSeen = await RedisService.getLastSeen(friendId);
+              
+              return {
+                userId: friendId,
+                isOnline,
+                lastSeen,
+              };
+            })
           );
 
+          console.log(`📊 Sending online status for ${onlineStatus.length} friends to user ${userId}`);
           socket.emit('online_friends', onlineStatus);
         } catch (error) {
           console.error('get_online_friends error:', error);
+          socket.emit('online_friends', []);
         }
       });
 
       // ==================== HEARTBEAT ====================
-      
       socket.on('heartbeat', async () => {
         await RedisService.setUserOnline(userId, 30);
       });
@@ -168,7 +179,6 @@ export function initializeSocketIO(httpServer: HTTPServer) {
       }, 20000);
 
       // ==================== DISCONNECT ====================
-      
       socket.on('disconnect', async (reason) => {
         console.log(`❌ User disconnected: ${userEmail} (${reason})`);
 
@@ -179,16 +189,20 @@ export function initializeSocketIO(httpServer: HTTPServer) {
 
           // Check if user has other active sockets
           const userSockets = await RedisService.getUserSockets(userId);
+          console.log(`🔍 User ${userId} has ${userSockets.length} remaining sockets`);
 
           if (userSockets.length === 0) {
             // User is fully offline
             await RedisService.setUserOffline(userId);
+            console.log(`🔴 User ${userId} marked as OFFLINE in Redis`);
 
-            // Broadcast offline status to friends
+            // ✅ BROADCAST OFFLINE STATUS TO FRIENDS
             await broadcastToFriends(io, userId, 'friend_offline', {
               userId,
               lastSeen: Date.now(),
             });
+
+            console.log(`📡 Broadcasted offline status for user ${userId}`);
 
             // Clear all typing indicators for this user
             if (conversations) {
@@ -207,11 +221,9 @@ export function initializeSocketIO(httpServer: HTTPServer) {
       });
 
       // ==================== ERROR HANDLING ====================
-      
       socket.on('error', (error) => {
         console.error(`Socket error for ${userEmail}:`, error);
       });
-
     } catch (error) {
       console.error('Connection setup error:', error);
       socket.disconnect();
