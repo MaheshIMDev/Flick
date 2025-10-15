@@ -67,7 +67,7 @@ export default function ChatPage() {
           }
         }
       } catch (error) {
-        // Error handled error);
+        console.error('Failed to fetch conversation info:', error);
       }
     };
 
@@ -324,7 +324,7 @@ export default function ChatPage() {
         isMuted={webrtc.isMuted}
         isVideoOff={webrtc.isVideoOff}
         isScreenSharing={webrtc.isScreenSharing}
-        remoteScreenSharing={webrtc.remoteScreenSharing} // ✅ ADD THIS
+        remoteScreenSharing={webrtc.remoteScreenSharing}
         friendName={conversationInfo.name}
         onAnswer={webrtc.answerCall}
         onReject={webrtc.rejectCall}

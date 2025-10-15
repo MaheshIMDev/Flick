@@ -81,6 +81,7 @@ export default function Header() {
             <div className="flex items-center space-x-3">
               <Avatar
                 src={user.avatar_url}
+                name={user.display_name || user.username}
                 alt={user.display_name}
                 size="sm"
                 online={user.is_online}

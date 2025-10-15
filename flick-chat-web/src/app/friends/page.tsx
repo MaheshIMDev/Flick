@@ -45,7 +45,7 @@ export default function FriendsPage() {
       const { data } = await api.get('/friends/requests');
       setPendingRequests(data.requests || []);
     } catch (error) {
-      // Error handled error);
+      console.error('Failed to load requests:', error);
     } finally {
       setLoading(false);
     }

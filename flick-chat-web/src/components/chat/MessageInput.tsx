@@ -1,173 +1,159 @@
 'use client';
 
-import { useState, useRef, KeyboardEvent } from 'react';
-import { cn } from '@/lib/utils';
+import { useState, FormEvent, useRef, KeyboardEvent } from 'react';
+import { Send, Smile, Paperclip, X } from 'lucide-react';
 
-interface MessageInputProps {
-  onSend: (message: string) => void;
-  onTyping?: () => void;
-  placeholder?: string;
-  disabled?: boolean;
+interface Message {
+  id: string;
+  encrypted_content: string;
+  sender_id: string;
 }
 
-export default function MessageInput({
-  onSend,
-  onTyping,
-  placeholder = 'Type a message...',
+interface ChatInputProps {
+  onSend: (message: string) => void;
+  onTyping: () => void;
+  disabled?: boolean;
+  replyingTo?: Message | null;
+  onCancelReply?: () => void;
+}
+
+export default function ChatInput({ 
+  onSend, 
+  onTyping, 
   disabled = false,
-}: MessageInputProps) {
+  replyingTo,
+  onCancelReply,
+}: ChatInputProps) {
   const [message, setMessage] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
+  const [showEmojiTooltip, setShowEmojiTooltip] = useState(false);
+  const [showAttachTooltip, setShowAttachTooltip] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setMessage(e.target.value);
-
-    // Auto-resize textarea
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!message.trim() || disabled) return;
+    onSend(message.trim());
+    setMessage('');
+    
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
-    }
-
-    // Typing indicator
-    if (onTyping) {
-      onTyping();
-      
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-      
-      typingTimeoutRef.current = setTimeout(() => {
-        // Stop typing
-      }, 3000);
     }
   };
 
-  const handleSend = () => {
-    const trimmedMessage = message.trim();
-    if (!trimmedMessage || disabled) return;
-
-    onSend(trimmedMessage);
-    setMessage('');
-
-    // Reset textarea height
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setMessage(e.target.value);
+    onTyping();
+    
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
     }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSubmit(e);
     }
   };
 
-  const handleVoiceClick = () => {
-    setIsRecording(!isRecording);
-    // TODO: Implement voice recording
-    console.log('Voice recording:', !isRecording);
-  };
+  let repliedContent = '';
+  if (replyingTo) {
+    try {
+      repliedContent = Buffer.from(replyingTo.encrypted_content, 'base64').toString('utf-8');
+    } catch (e) {
+      repliedContent = replyingTo.encrypted_content;
+    }
+  }
 
   return (
-    <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3">
-      <div className="flex items-end gap-2">
-        {/* Attachment Button */}
-        <button
-          type="button"
-          className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-          disabled={disabled}
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
-
-        {/* Message Input */}
-        <div className="flex-1 relative">
-          <textarea
-            ref={textareaRef}
-            value={message}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            disabled={disabled}
-            rows={1}
-            className={cn(
-              'w-full px-4 py-2.5 pr-12 rounded-3xl resize-none',
-              'bg-gray-100 dark:bg-gray-800',
-              'text-gray-900 dark:text-white',
-              'placeholder-gray-500 dark:placeholder-gray-400',
-              'focus:outline-none focus:ring-2 focus:ring-teal-500',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-              'max-h-32 overflow-y-auto'
-            )}
-            style={{ minHeight: '44px' }}
-          />
-
-          {/* Emoji Button */}
+    <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex-shrink-0">
+      {replyingTo && (
+        <div className="px-4 py-3 bg-teal-50 dark:bg-teal-900/20 flex items-center justify-between border-b border-teal-200 dark:border-teal-800">
+          <div className="flex items-center space-x-3 flex-1 min-w-0">
+            <div className="w-1 h-12 bg-teal-500 rounded flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-teal-600 dark:text-teal-400 mb-0.5">
+                Replying to message
+              </p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                {repliedContent}
+              </p>
+            </div>
+          </div>
           <button
-            type="button"
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            disabled={disabled}
+            onClick={onCancelReply}
+            className="p-1.5 hover:bg-teal-100 dark:hover:bg-teal-800 rounded-full transition-colors flex-shrink-0"
+            aria-label="Cancel reply"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+            <X size={18} className="text-gray-600 dark:text-gray-400" />
           </button>
         </div>
+      )}
 
-        {/* Send / Voice Button */}
-        {message.trim() ? (
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={disabled}
-            className={cn(
-              'p-3 rounded-full transition-all',
-              'bg-teal-500 text-white',
-              'hover:bg-teal-600',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
+      <form onSubmit={handleSubmit} className="p-3 sm:p-4">
+        <div className="flex items-end space-x-2 max-w-4xl mx-auto">
+          <div className="relative">
+            <button
+              type="button"
+              onMouseEnter={() => setShowEmojiTooltip(true)}
+              onMouseLeave={() => setShowEmojiTooltip(false)}
+              className="p-2.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+              disabled={disabled}
+            >
+              <Smile size={20} />
+            </button>
+            {showEmojiTooltip && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg whitespace-nowrap shadow-lg">
+                Coming soon!
+                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-700" />
+              </div>
             )}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-              />
-            </svg>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleVoiceClick}
-            disabled={disabled}
-            className={cn(
-              'p-3 rounded-full transition-all',
-              isRecording ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
-              'hover:bg-gray-300 dark:hover:bg-gray-600',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
+          </div>
+
+          <div className="relative">
+            <button
+              type="button"
+              onMouseEnter={() => setShowAttachTooltip(true)}
+              onMouseLeave={() => setShowAttachTooltip(false)}
+              className="p-2.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+              disabled={disabled}
+            >
+              <Paperclip size={20} />
+            </button>
+            {showAttachTooltip && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg whitespace-nowrap shadow-lg">
+                Coming soon!
+                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-700" />
+              </div>
             )}
+          </div>
+
+          <div className="flex-1 relative min-w-0">
+            <textarea
+              ref={textareaRef}
+              value={message}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder={disabled ? 'Connecting...' : 'Type a message...'}
+              disabled={disabled}
+              rows={1}
+              className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-700 rounded-full text-sm text-gray-900 dark:text-white placeholder-gray-500 disabled:opacity-50 resize-none border-0 focus:outline-none focus:ring-2 focus:ring-teal-500 max-h-[120px] overflow-y-auto"
+              style={{ minHeight: '44px' }}
+              autoComplete="off"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={disabled || !message.trim()}
+            className="p-2.5 bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white rounded-full disabled:cursor-not-allowed flex-shrink-0 transition-all shadow-md hover:shadow-lg disabled:shadow-none"
+            aria-label="Send message"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-              />
-            </svg>
+            <Send size={18} />
           </button>
-        )}
-      </div>
+        </div>
+      </form>
     </div>
   );
 }

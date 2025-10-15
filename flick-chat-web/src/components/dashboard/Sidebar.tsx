@@ -17,7 +17,7 @@ export default function Sidebar({ user }: { user: any }) {
 
   const toggleSidebar = () => setIsOpen(!isOpen);
 
-  const filteredContacts = contacts.filter(c => 
+  const filteredContacts = contacts.filter(c =>
     c.display_name.toLowerCase().includes(search.toLowerCase()) ||
     c.username.toLowerCase().includes(search.toLowerCase())
   );
@@ -28,15 +28,15 @@ export default function Sidebar({ user }: { user: any }) {
   return (
     <>
       {/* Mobile Hamburger */}
-      <button 
-        onClick={toggleSidebar} 
+      <button
+        onClick={toggleSidebar}
         className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-white dark:bg-gray-800 shadow-md"
       >
         {isOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
       {/* Sidebar */}
-      <aside 
+      <aside
         className={`
           fixed md:static inset-y-0 left-0 z-40 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700
           transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out
@@ -46,7 +46,13 @@ export default function Sidebar({ user }: { user: any }) {
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           {/* Mini Profile */}
           <div className="flex items-center space-x-3 mb-4">
-            <Avatar src={user.avatar_url} alt={user.display_name} size="md" online={user.is_online} />
+            <Avatar
+              src={user.avatar_url}
+              name={user.display_name || user.username}
+              alt={user.display_name}
+              size="sm"
+              online={user.is_online}
+            />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                 {user.display_name}
@@ -80,9 +86,9 @@ export default function Sidebar({ user }: { user: any }) {
         {/* Navigation & Sections */}
         <nav className="p-4 space-y-4">
           {/* New Chat Button */}
-          <Button 
-            variant="primary" 
-            className="w-full justify-start" 
+          <Button
+            variant="primary"
+            className="w-full justify-start"
             onClick={() => router.push('/new-chat')}  // Future route
           >
             <Plus size={20} className="mr-2" />
@@ -108,12 +114,18 @@ export default function Sidebar({ user }: { user: any }) {
               <ul className="space-y-1">
                 {filteredContacts.map((contact: Contact) => (
                   <li key={contact.id}>
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       className="w-full justify-start text-left hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                      onClick={() => {/* Open chat */}}
+                      onClick={() => {/* Open chat */ }}
                     >
-                      <Avatar src={contact.avatar_url} size="sm" alt="" online={contact.is_online} />
+                      <Avatar
+                        src={user.avatar_url}
+                        name={user.display_name || user.username}
+                        alt={user.display_name}
+                        size="sm"
+                        online={user.is_online}
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                           {contact.display_name}
@@ -146,10 +158,10 @@ export default function Sidebar({ user }: { user: any }) {
               <ul className="space-y-1">
                 {groups.map((group: any) => (
                   <li key={group.id}>
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       className="w-full justify-start text-left hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                      onClick={() => {/* Open group chat */}}
+                      onClick={() => {/* Open group chat */ }}
                     >
                       <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center mr-3">
                         <span className="text-white text-xs font-bold">{group.name?.[0] || 'G'}</span>
@@ -165,10 +177,10 @@ export default function Sidebar({ user }: { user: any }) {
           </div>
 
           {/* Settings */}
-          <Button 
-            variant="ghost" 
-            className="w-full justify-start" 
-            onClick={() => {/* Settings Modal */}}
+          <Button
+            variant="ghost"
+            className="w-full justify-start"
+            onClick={() => {/* Settings Modal */ }}
           >
             <Settings size={20} className="mr-2" />
             Settings
@@ -177,10 +189,10 @@ export default function Sidebar({ user }: { user: any }) {
 
         {/* Logout */}
         <div className="absolute bottom-4 left-4 right-4">
-          <Button 
-            variant="outline" 
-            icon={<LogOut size={18} />} 
-            className="w-full" 
+          <Button
+            variant="outline"
+            icon={<LogOut size={18} />}
+            className="w-full"
             onClick={logout}
           >
             Sign Out
@@ -190,7 +202,7 @@ export default function Sidebar({ user }: { user: any }) {
 
       {/* Mobile Overlay */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
           onClick={toggleSidebar}
         />

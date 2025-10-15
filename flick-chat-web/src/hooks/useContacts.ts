@@ -42,7 +42,7 @@ export function useContacts() {
         const { data: groupsData } = await api.get('/groups');
         setGroups(groupsData.groups || []);
       } catch (error) {
-        // Error handled error);
+        console.error('Failed to fetch:', error);
         setContacts([]);
         setGroups([]);
       } finally {

@@ -77,13 +77,13 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
         } : false,
       });
       
-       stream.id);
+      console.log('[WebRTC] Got media stream:', stream.id);
       
       localStreamRef.current = stream;
       setLocalStream(stream);
       return stream;
     } catch (error) {
-       error);
+      console.error('[WebRTC] Media error:', error);
       alert('Cannot access camera/microphone');
       throw error;
     }
@@ -91,7 +91,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
 
   const startScreenShare = useCallback(async () => {
     if (!peerConnectionRef.current || !isCallActive) {
-      ;
+      console.warn('[WebRTC] Cannot share screen - no active call');
       return;
     }
     
@@ -101,7 +101,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
     }
     
     try {
-      ;
+      console.log('[WebRTC] Starting screen share');
       
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
@@ -139,12 +139,12 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
         stopScreenShare();
       };
       
-      ;
+      console.log('[WebRTC] Screen sharing started');
     } catch (error: any) {
       if (error.name === 'NotAllowedError') {
-        ;
+        console.log('[WebRTC] Screen share cancelled by user');
       } else {
-         error);
+        console.error('[WebRTC] Screen share error:', error);
       }
     }
   }, [isCallActive, remoteScreenSharing, socket, conversationId]);
@@ -153,7 +153,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
     if (!peerConnectionRef.current || !screenStreamRef.current) return;
     
     try {
-      ;
+      console.log('[WebRTC] Stopping screen share');
       
       screenStreamRef.current.getTracks().forEach(t => t.stop());
       screenStreamRef.current = null;
@@ -178,16 +178,16 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
       
       socket?.emit('screen_share_stopped', { to: currentFriendIdRef.current, conversationId });
       
-      ;
+      console.log('[WebRTC] Screen sharing stopped');
     } catch (error) {
-       error);
+      console.error('[WebRTC] Stop screen share error:', error);
     }
   }, [socket, conversationId]);
 
   const endCall = useCallback(() => {
     if (isCleaningUpRef.current) return;
     isCleaningUpRef.current = true;
-    ;
+    console.log('[WebRTC] Ending call');
     
     stopCallSound();
     playEndCallSound();
@@ -255,14 +255,13 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        ...(process.env.NEXT_PUBLIC_TURN_URL ? [{
-          urls: process.env.NEXT_PUBLIC_TURN_URL,
-          username: process.env.NEXT_PUBLIC_TURN_USERNAME,
-          credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL,
-        }] : []),
+        {
+          urls: 'turn:a.relay.metered.ca:443',
+          username: '85d6ac0b4c92f0fe027d573b',
+          credential: 'Y2MwVg4tNpNSEBlK',
+        },
       ],
     };
-    
 
     const pc = new RTCPeerConnection(config);
 
@@ -276,9 +275,9 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
     };
 
     pc.ontrack = (event) => {
-       event.track.kind);
+      console.log('[WebRTC] Received track:', event.track.kind);
       if (event.streams[0]) {
-        ;
+        console.log('[WebRTC] Setting remote stream');
         remoteStreamRef.current = event.streams[0];
         setRemoteStream(event.streams[0]);
       }
@@ -302,7 +301,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
     if (isOutgoingCall || isCallActive || isIncomingCall) return;
     
     try {
-      ;
+      console.log('[WebRTC] Starting call');
       setCallType(type);
       setIsOutgoingCall(true);
       playOutgoingCallSound();
@@ -312,7 +311,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
       
       stream.getTracks().forEach(track => {
         pc.addTrack(track, stream);
-         track.kind);
+        console.log('[WebRTC] Added track:', track.kind);
       });
       
       const offer = await pc.createOffer();
@@ -321,7 +320,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
       socket?.emit('webrtc_offer', { offer, to: friendId, conversationId, callType: type });
       setIsCallActive(true);
     } catch (error) {
-       error);
+      console.error('[WebRTC] Start error:', error);
       stopCallSound();
       setIsOutgoingCall(false);
       endCall();
@@ -330,7 +329,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
 
   const answerCall = useCallback(async () => {
     try {
-      ;
+      console.log('[WebRTC] Answering');
       stopCallSound();
       
       if (!pendingOfferRef.current) return;
@@ -343,7 +342,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
       
       stream.getTracks().forEach(track => {
         pc.addTrack(track, stream);
-         track.kind);
+        console.log('[WebRTC] Added track:', track.kind);
       });
       
       await pc.setRemoteDescription(offer);
@@ -362,7 +361,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
       setIsIncomingCall(false);
       setIsCallActive(true);
     } catch (error) {
-       error);
+      console.error('[WebRTC] Answer error:', error);
       stopCallSound();
       endCall();
     }
@@ -400,7 +399,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
     if (!socket) return;
     
     const handleIncoming = (data: { from: string; callType: 'audio' | 'video' }) => {
-      ;
+      console.log('[WebRTC] Incoming call');
       playIncomingCallSound();
       setIsIncomingCall(true);
       setCallerId(data.from);
@@ -408,7 +407,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
     };
 
     const handleConnected = (data: { with: string; callStartTime: number }) => {
-      ;
+      console.log('[WebRTC] Connected');
       setCallStartTime(data.callStartTime);
       callStartTimeRef.current = data.callStartTime;
       setIsOutgoingCall(false);
@@ -416,12 +415,12 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
     };
 
     const handleOffer = (data: { offer: RTCSessionDescriptionInit; from: string }) => {
-      ;
+      console.log('[WebRTC] Offer received');
       pendingOfferRef.current = data;
     };
 
     const handleAnswer = async (data: { answer: RTCSessionDescriptionInit }) => {
-      ;
+      console.log('[WebRTC] Answer received');
       if (peerConnectionRef.current?.signalingState === 'have-local-offer') {
         await peerConnectionRef.current.setRemoteDescription(data.answer);
         
@@ -437,7 +436,7 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
         try {
           await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
         } catch (e) {
-           e);
+          console.error('[WebRTC] ICE error:', e);
         }
       } else {
         pendingCandidatesRef.current.push(new RTCIceCandidate(data.candidate));
@@ -445,12 +444,12 @@ export function useWebRTC({ friendId, conversationId, friendName }: UseWebRTCPro
     };
 
     const handleScreenShareStarted = () => {
-      ;
+      console.log('[WebRTC] Remote started screen sharing');
       setRemoteScreenSharing(true);
     };
 
     const handleScreenShareStopped = () => {
-      ;
+      console.log('[WebRTC] Remote stopped screen sharing');
       setRemoteScreenSharing(false);
     };
 

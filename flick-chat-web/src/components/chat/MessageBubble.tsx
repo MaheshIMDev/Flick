@@ -1,5 +1,13 @@
 import Avatar from '../ui/Avatar';
-import { formatMessageTime } from '@/lib/utils';
+import { Reply } from 'lucide-react';
+
+interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  encrypted_content: string;
+  sent_at: string;
+}
 
 interface MessageBubbleProps {
   content: string;
@@ -7,8 +15,9 @@ interface MessageBubbleProps {
   isMe: boolean;
   senderName?: string;
   senderAvatar?: string | null;
-  isRead?: boolean;
   showAvatar?: boolean;
+  repliedMessage?: Message | null;
+  onReply?: () => void;
 }
 
 export default function MessageBubble({
@@ -17,47 +26,79 @@ export default function MessageBubble({
   isMe,
   senderName,
   senderAvatar,
-  isRead = false,
   showAvatar = true,
+  repliedMessage,
+  onReply,
 }: MessageBubbleProps) {
-  return (
-    <div
-      className={`flex gap-2 px-4 mb-3 ${isMe ? 'justify-end' : 'justify-start'}`}
-    >
-      {!isMe && showAvatar && (
-        <Avatar src={senderAvatar} name={senderName || 'User'} size="sm" />
-      )}
+  let repliedContent = '';
+  if (repliedMessage) {
+    try {
+      repliedContent = Buffer.from(repliedMessage.encrypted_content, 'base64').toString('utf-8');
+    } catch (e) {
+      repliedContent = repliedMessage.encrypted_content;
+    }
+  }
 
-      <div className={`max-w-[70%] ${!isMe && !showAvatar ? 'ml-10' : ''}`}>
-        {!isMe && senderName && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1 ml-3">
-            {senderName}
-          </p>
+  return (
+    <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} group`}>
+      <div className={`max-w-[85%] sm:max-w-[75%] ${isMe ? '' : 'flex items-start space-x-2'}`}>
+        {!isMe && showAvatar && (
+          <Avatar 
+            src={senderAvatar} 
+            name={senderName || 'User'} 
+            size="sm" 
+            className="flex-shrink-0 mt-1" 
+          />
         )}
         
-        <div
-          className={`rounded-2xl px-4 py-2 shadow-sm ${
-            isMe
-              ? 'bg-teal-500 text-white rounded-tr-sm'
-              : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white rounded-tl-sm'
-          }`}
-        >
-          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-            {content}
-          </p>
-          
+        <div className="flex-1 min-w-0 relative">
+          {onReply && (
+            <button
+              onClick={onReply}
+              className={`absolute top-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-gray-200 dark:bg-gray-700 rounded-full shadow-md hover:bg-gray-300 dark:hover:bg-gray-600 ${
+                isMe ? 'left-0 -translate-x-full -ml-2' : 'right-0 translate-x-full -mr-2'
+              }`}
+              title="Reply"
+            >
+              <Reply size={14} className="text-gray-700 dark:text-gray-300" />
+            </button>
+          )}
+
           <div
-            className={`flex items-center justify-end gap-1 mt-1 text-xs ${
-              isMe ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'
+            className={`rounded-2xl px-3 sm:px-4 py-2 shadow-sm ${
+              isMe
+                ? 'bg-teal-500 text-white rounded-br-none'
+                : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-bl-none'
             }`}
           >
-            <span>{formatMessageTime(timestamp)}</span>
-            {isMe && (
-              <span className="ml-1">
-                {isRead ? '✓✓' : '✓'}
-              </span>
+            {repliedMessage && (
+              <div className={`mb-2 pl-2 border-l-3 rounded py-1 ${
+                isMe 
+                  ? 'border-white/50 bg-black/10' 
+                  : 'border-teal-500 bg-gray-50 dark:bg-gray-700/50'
+              }`}>
+                <p className={`text-xs font-semibold mb-0.5 ${
+                  isMe ? 'text-white' : 'text-teal-600 dark:text-teal-400'
+                }`}>
+                  Replying to
+                </p>
+                <p className={`text-xs line-clamp-2 ${
+                  isMe ? 'text-white/80' : 'text-gray-600 dark:text-gray-400'
+                }`}>
+                  {repliedContent}
+                </p>
+              </div>
             )}
+
+            <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
           </div>
+
+          <p className={`text-xs mt-1 ${isMe ? 'text-right text-gray-500 dark:text-gray-400' : 'text-gray-400'}`}>
+            {new Date(timestamp).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+          </p>
         </div>
       </div>
     </div>

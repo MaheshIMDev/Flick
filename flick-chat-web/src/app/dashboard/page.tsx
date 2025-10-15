@@ -6,9 +6,25 @@ import { useAuth } from '@/context/AuthContext';
 import { useSocket } from '@/hooks/useSocket';
 import useWebRTC from '@/hooks/useWebRTC';
 import { useActiveCallStore } from '@/hooks/useActiveCall';
-import { MessageSquare, Search, Settings, LogOut, UserPlus, QrCode, User, MoreVertical, Send, Smile, Paperclip, Phone, Video, PhoneCall } from 'lucide-react';
+import {
+  MessageSquare,
+  Search,
+  LogOut,
+  UserPlus,
+  QrCode,
+  User,
+  MoreVertical,
+  PhoneCall,
+  X,
+  Settings,
+} from 'lucide-react';
 import Avatar from '@/components/ui/Avatar';
+import ThemeToggle from '@/components/ui/ThemeToggle';
 import VideoCallOverlay from '@/components/call/CallOverLay';
+import MessageBubble from '@/components/chat/MessageBubble';
+import ChatHeader from '@/components/chat/ChatHeader';
+import ChatInput from '@/components/chat/MessageInput';
+import FriendsList from '@/components/dashboard/FriendsList';
 import api from '@/lib/api';
 import { playMessageSound, playSentSound } from '@/lib/sounds';
 
@@ -20,6 +36,8 @@ interface Message {
   sent_at: string;
   tempId?: string;
   sender?: any;
+  reply_to?: string | null;
+  replied_message?: Message | null;
 }
 
 interface FriendWithConv {
@@ -36,22 +54,25 @@ export default function DashboardPage() {
   const { user, logout, loading: authLoading } = useAuth();
   const { socket, isConnected } = useSocket();
   const { activeCall, isCallStale } = useActiveCallStore();
-  
+
   const [search, setSearch] = useState('');
   const [friends, setFriends] = useState<FriendWithConv[]>([]);
   const [loading, setLoading] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(true);
   const [selectedFriend, setSelectedFriend] = useState<FriendWithConv | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
-  const [messageInput, setMessageInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const processedIds = useRef(new Set<string>());
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const onlineStatusRequestedRef = useRef(false);
 
-  // ✅ Always use selected friend OR active call friend for WebRTC
-  const callFriend = selectedFriend || (activeCall?.friendId ? friends.find(f => f.id === activeCall.friendId) : null);
+  const callFriend =
+    selectedFriend ||
+    (activeCall?.friendId ? friends.find((f) => f.id === activeCall.friendId) : null);
 
   const webrtc = useWebRTC({
     friendId: callFriend?.id || '',
@@ -59,20 +80,22 @@ export default function DashboardPage() {
     friendName: callFriend?.display_name || '',
   });
 
-  // ✅ Auto-select friend when incoming call arrives
   useEffect(() => {
     if (webrtc.isIncomingCall && activeCall?.friendId && !selectedFriend) {
-      const friend = friends.find(f => f.id === activeCall.friendId);
+      const friend = friends.find((f) => f.id === activeCall.friendId);
       if (friend) {
         setSelectedFriend(friend);
+        setShowSidebar(false);
       }
     }
   }, [webrtc.isIncomingCall, activeCall, friends, selectedFriend]);
 
   useEffect(() => {
+    if (messages.length === 0) return;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length]);
 
+  // Check auth and load data
   useEffect(() => {
     if (!authLoading && !user) {
       router.push('/login');
@@ -85,15 +108,16 @@ export default function DashboardPage() {
     try {
       const [friendsRes, convsRes] = await Promise.all([
         api.get('/friends'),
-        api.get('/conversations')
+        api.get('/conversations'),
       ]);
 
       const friendsList = friendsRes.data.friends || [];
       const conversations = convsRes.data.conversations || [];
 
       const friendsWithConvs = friendsList.map((friend: any) => {
-        const conv = conversations.find((c: any) => 
-          c.type === 'direct' && c.participants.some((p: any) => p.id === friend.id)
+        const conv = conversations.find(
+          (c: any) =>
+            c.type === 'direct' && c.participants.some((p: any) => p.id === friend.id)
         );
 
         return {
@@ -101,33 +125,114 @@ export default function DashboardPage() {
           username: friend.username,
           display_name: friend.display_name,
           avatar_url: friend.avatar_url,
-          is_online: friend.is_online,
-          conversation_id: conv?.id || null
+          is_online: false, // Will be updated by socket events
+          conversation_id: conv?.id || null,
         };
       });
 
       setFriends(friendsWithConvs);
     } catch (error) {
-       error);
+      console.error('Failed to fetch data:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  // Request initial online status when socket connects
+  useEffect(() => {
+    if (!socket || !isConnected || friends.length === 0 || onlineStatusRequestedRef.current) return;
+
+    const timer = setTimeout(() => {
+      console.log('📞 Requesting initial online status...');
+      socket.emit('get_online_friends');
+      onlineStatusRequestedRef.current = true;
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [socket, isConnected, friends.length]);
+
+  // Listen for initial online status response
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleOnlineFriends = (data: Array<{userId: string; isOnline: boolean; lastSeen?: number}>) => {
+      console.log('📊 Received initial online status:', data);
+      
+      setFriends(prev => 
+        prev.map(friend => {
+          const status = data.find(s => s.userId === friend.id);
+          if (status) {
+            console.log(`Friend ${friend.display_name}: ${status.isOnline ? 'ONLINE' : 'OFFLINE'}`);
+            return { ...friend, is_online: status.isOnline };
+          }
+          return friend;
+        })
+      );
+    };
+
+    socket.on('online_friends', handleOnlineFriends);
+
+    return () => {
+      socket.off('online_friends', handleOnlineFriends);
+    };
+  }, [socket, isConnected]);
+
+  // Listen for real-time online/offline events
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleFriendOnline = (data: { userId: string; timestamp?: number }) => {
+      console.log('✅ [EVENT] Friend came online:', data.userId);
+      setFriends((prev) =>
+        prev.map((f) => {
+          if (f.id === data.userId) {
+            console.log(`Updated ${f.display_name} to ONLINE`);
+            return { ...f, is_online: true };
+          }
+          return f;
+        })
+      );
+    };
+
+    const handleFriendOffline = (data: { userId: string; lastSeen?: number }) => {
+      console.log('❌ [EVENT] Friend went offline:', data.userId);
+      setFriends((prev) =>
+        prev.map((f) => {
+          if (f.id === data.userId) {
+            console.log(`Updated ${f.display_name} to OFFLINE`);
+            return { ...f, is_online: false };
+          }
+          return f;
+        })
+      );
+    };
+
+    socket.on('friend_online', handleFriendOnline);
+    socket.on('friend_offline', handleFriendOffline);
+
+    return () => {
+      socket.off('friend_online', handleFriendOnline);
+      socket.off('friend_offline', handleFriendOffline);
+    };
+  }, [socket, isConnected]);
+
+  // Load messages for selected conversation
   useEffect(() => {
     if (!selectedFriend?.conversation_id) return;
 
     const loadMessages = async () => {
       setMessagesLoading(true);
       processedIds.current.clear();
-      
+
       try {
-        const response = await api.get(`/messages/conversation/${selectedFriend.conversation_id}?limit=50`);
+        const response = await api.get(
+          `/messages/conversation/${selectedFriend.conversation_id}?limit=50`
+        );
         const fetchedMessages = response.data.messages.reverse();
         fetchedMessages.forEach((msg: Message) => processedIds.current.add(msg.id));
         setMessages(fetchedMessages);
       } catch (error) {
-         error);
+        console.error('Failed to load messages:', error);
       } finally {
         setMessagesLoading(false);
       }
@@ -136,6 +241,7 @@ export default function DashboardPage() {
     loadMessages();
   }, [selectedFriend?.conversation_id]);
 
+  // Socket handlers for messages and typing
   useEffect(() => {
     if (!socket || !isConnected || !selectedFriend?.conversation_id) return;
 
@@ -149,10 +255,12 @@ export default function DashboardPage() {
 
       if (message.tempId) {
         setMessages((prev) => {
-          const hasTempMessage = prev.some(msg => msg.id === message.tempId);
+          const hasTempMessage = prev.some((msg) => msg.id === message.tempId);
           if (hasTempMessage) {
             processedIds.current.add(message.id);
-            return prev.map((msg) => msg.id === message.tempId ? { ...message, tempId: undefined } : msg);
+            return prev.map((msg) =>
+              msg.id === message.tempId ? { ...message, tempId: undefined } : msg
+            );
           } else {
             processedIds.current.add(message.id);
             return [...prev, { ...message, tempId: undefined }];
@@ -166,53 +274,45 @@ export default function DashboardPage() {
     };
 
     const handleUserTyping = (data: { userId: string; conversationId: string }) => {
-      if (data.conversationId === conversationId && data.userId !== user?.id) setIsTyping(true);
+      if (data.conversationId === conversationId && data.userId !== user?.id) {
+        setIsTyping(true);
+      }
     };
 
     const handleUserStoppedTyping = (data: { userId: string; conversationId: string }) => {
-      if (data.conversationId === conversationId && data.userId !== user?.id) setIsTyping(false);
-    };
-
-    const handleFriendOnline = (data: { userId: string }) => {
-      setFriends((prev) => prev.map((f) => (f.id === data.userId ? { ...f, is_online: true } : f)));
-    };
-
-    const handleFriendOffline = (data: { userId: string }) => {
-      setFriends((prev) => prev.map((f) => (f.id === data.userId ? { ...f, is_online: false } : f)));
+      if (data.conversationId === conversationId && data.userId !== user?.id) {
+        setIsTyping(false);
+      }
     };
 
     socket.on('receive_message', handleReceiveMessage);
     socket.on('user_typing', handleUserTyping);
     socket.on('user_stopped_typing', handleUserStoppedTyping);
-    socket.on('friend_online', handleFriendOnline);
-    socket.on('friend_offline', handleFriendOffline);
 
     return () => {
-      socket.off('receive_message');
-      socket.off('user_typing');
-      socket.off('user_stopped_typing');
-      socket.off('friend_online');
-      socket.off('friend_offline');
+      socket.off('receive_message', handleReceiveMessage);
+      socket.off('user_typing', handleUserTyping);
+      socket.off('user_stopped_typing', handleUserStoppedTyping);
       socket.emit('leave_conversation', { conversationId });
     };
   }, [socket, isConnected, selectedFriend?.conversation_id, user?.id]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setMessageInput(e.target.value);
+  const handleTyping = () => {
     if (!socket || !selectedFriend?.conversation_id) return;
 
     socket.emit('typing_start', { conversationId: selectedFriend.conversation_id });
+    
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit('typing_stop', { conversationId: selectedFriend.conversation_id });
     }, 3000);
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!messageInput.trim() || !selectedFriend?.conversation_id || !socket) return;
+  const handleSendMessage = (message: string) => {
+    if (!selectedFriend?.conversation_id || !socket) return;
 
-    const encryptedContent = Buffer.from(messageInput.trim()).toString('base64');
+    const encryptedContent = Buffer.from(message).toString('base64');
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const tempMessage: Message = {
@@ -222,21 +322,36 @@ export default function DashboardPage() {
       encrypted_content: encryptedContent,
       sent_at: new Date().toISOString(),
       tempId,
-      sender: { id: user!.id, username: user!.username, display_name: user!.display_name, avatar_url: user!.avatar_url },
+      reply_to: replyingTo?.id || null,
+      replied_message: replyingTo || null,
+      sender: {
+        id: user!.id,
+        username: user!.username,
+        display_name: user!.display_name,
+        avatar_url: user!.avatar_url,
+      },
     };
 
     setMessages((prev) => [...prev, tempMessage]);
     processedIds.current.add(tempId);
-    setMessageInput('');
     playSentSound();
+    setReplyingTo(null);
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     socket.emit('typing_stop', { conversationId: selectedFriend.conversation_id });
-    socket.emit('send_message', { conversationId: selectedFriend.conversation_id, encryptedContent, messageType: 'text', tempId });
+    socket.emit('send_message', {
+      conversationId: selectedFriend.conversation_id,
+      encryptedContent,
+      messageType: 'text',
+      tempId,
+      replyTo: replyingTo?.id || null,
+    });
   };
 
-  const filteredFriends = friends.filter(f =>
-    f.display_name.toLowerCase().includes(search.toLowerCase()) || f.username.toLowerCase().includes(search.toLowerCase())
+  const filteredFriends = friends.filter(
+    (f) =>
+      f.display_name.toLowerCase().includes(search.toLowerCase()) ||
+      f.username.toLowerCase().includes(search.toLowerCase())
   );
 
   if (authLoading || loading) {
@@ -251,182 +366,288 @@ export default function DashboardPage() {
 
   return (
     <>
+      {/* Active Call Banner */}
       {isCallStale() && activeCall && activeCall.friendId !== selectedFriend?.id && (
-        <div className="fixed top-4 right-4 z-[9997] bg-gradient-to-r from-green-500 to-emerald-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-pulse border-2 border-white/30">
-          <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
-            <PhoneCall className="w-6 h-6 animate-pulse" />
+        <div className="fixed top-4 right-4 z-[9997] bg-green-500 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 max-w-sm">
+          <PhoneCall className="w-5 h-5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-sm truncate">Active call</p>
+            <p className="text-xs opacity-90 truncate">with {activeCall.friendName}</p>
           </div>
-          <div>
-            <p className="font-bold text-lg">Active call</p>
-            <p className="text-sm opacity-90">with {activeCall.friendName}</p>
-          </div>
-          <button 
+          <button
             onClick={() => {
-              const friend = friends.find(f => f.id === activeCall.friendId);
-              if (friend) setSelectedFriend(friend);
+              const friend = friends.find((f) => f.id === activeCall.friendId);
+              if (friend) {
+                setSelectedFriend(friend);
+                setShowSidebar(false);
+              }
             }}
-            className="px-6 py-2 bg-white text-green-600 hover:bg-gray-100 rounded-xl font-semibold transition-all"
+            className="px-3 py-1 bg-white text-green-600 rounded-lg font-semibold text-sm hover:bg-gray-100 transition-colors"
           >
-            View Call
+            View
           </button>
         </div>
       )}
 
-      <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
-        <aside className="w-96 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-          <div className="h-16 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4">
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                <Avatar src={user.avatar_url} name={user.display_name || user.username} size="md" />
-                <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full" />
+      <div className="flex h-screen bg-gray-100 dark:bg-gray-900 overflow-hidden">
+        {/* Mobile Overlay */}
+        {showSidebar && selectedFriend && (
+          <div
+            className="fixed inset-0 bg-black/50 z-20 lg:hidden"
+            onClick={() => setShowSidebar(false)}
+          />
+        )}
+
+        {/* Sidebar */}
+        <aside
+          className={`${
+            showSidebar ? 'translate-x-0' : '-translate-x-full'
+          } lg:translate-x-0 fixed lg:relative z-30 w-full sm:w-80 lg:w-96 bg-white dark:bg-gray-800 flex flex-col transition-transform duration-300 h-full border-r border-gray-200 dark:border-gray-700`}
+        >
+          {/* Header */}
+          <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3 min-w-0 flex-1">
+                <Avatar
+                  src={user.avatar_url}
+                  name={user.display_name || user.username}
+                  size="md"
+                  showOnline={true}
+                  isOnline={true}
+                />
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                    {user.display_name || user.username}
+                  </h2>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {isConnected ? 'Online' : 'Connecting...'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">{user.display_name || user.username}</h2>
-                <p className="text-xs text-green-500">{isConnected ? 'Active now' : 'Connecting...'}</p>
+
+              <div className="flex items-center gap-2">
+                {/* <ThemeToggle /> */}
+                
+                {selectedFriend && (
+                  <button
+                    onClick={() => setShowSidebar(false)}
+                    className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <X size={18} className="text-gray-600 dark:text-gray-400" />
+                  </button>
+                )}
+
+                <div className="relative">
+                  <button
+                    onClick={() => setShowMenu(!showMenu)}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <MoreVertical size={18} className="text-gray-600 dark:text-gray-400" />
+                  </button>
+
+                  {showMenu && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowMenu(false)}
+                      />
+                      <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-50 py-1 overflow-hidden">
+                        <button
+                          onClick={() => {
+                            router.push('/profile');
+                            setShowMenu(false);
+                          }}
+                          className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm transition-colors"
+                        >
+                          <User size={16} />
+                          <span>Profile</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            router.push('/friends');
+                            setShowMenu(false);
+                          }}
+                          className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm transition-colors"
+                        >
+                          <UserPlus size={16} />
+                          <span>Add Friend</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            router.push('/friends/qr');
+                            setShowMenu(false);
+                          }}
+                          className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm transition-colors"
+                        >
+                          <QrCode size={16} />
+                          <span>QR Code</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            router.push('/settings');
+                            setShowMenu(false);
+                          }}
+                          className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm transition-colors"
+                        >
+                          <Settings size={16} />
+                          <span>Settings</span>
+                        </button>
+                        <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+                        <button
+                          onClick={logout}
+                          className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 text-sm transition-colors"
+                        >
+                          <LogOut size={16} />
+                          <span>Logout</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
+          </div>
 
+          {/* Search */}
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="relative">
-              <button onClick={() => setShowMenu(!showMenu)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full">
-                <MoreVertical size={20} className="text-gray-600 dark:text-gray-400" />
-              </button>
-
-              {showMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-                  <div className="absolute top-full right-0 mt-1 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 py-2">
-                    <button onClick={() => { router.push('/profile'); setShowMenu(false); }} className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
-                      <User size={18} /><span className="text-sm">Profile</span>
-                    </button>
-                    <button onClick={() => { router.push('/friends'); setShowMenu(false); }} className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
-                      <UserPlus size={18} /><span className="text-sm">Add Friend</span>
-                    </button>
-                    <button onClick={() => { router.push('/friends/qr'); setShowMenu(false); }} className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
-                      <QrCode size={18} /><span className="text-sm">QR Code</span>
-                    </button>
-                    <button onClick={() => { router.push('/settings'); setShowMenu(false); }} className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
-                      <Settings size={18} /><span className="text-sm">Settings</span>
-                    </button>
-                    <div className="border-t border-gray-200 dark:border-gray-700 my-2" />
-                    <button onClick={logout} className="w-full px-4 py-2.5 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-red-600 dark:text-red-400">
-                      <LogOut size={18} /><span className="text-sm">Logout</span>
-                    </button>
-                  </div>
-                </>
-              )}
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                size={18}
+              />
+              <input
+                type="text"
+                placeholder="Search conversations..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm text-gray-900 dark:text-white placeholder-gray-500 border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
+              />
             </div>
           </div>
 
-          <div className="p-3 border-b border-gray-200 dark:border-gray-700">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input type="text" placeholder="Search friends..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {filteredFriends.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full px-6 text-center">
-                <MessageSquare size={64} className="text-gray-300 dark:text-gray-600 mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No friends yet</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Scan QR codes to add friends</p>
-                <button onClick={() => router.push('/friends/qr')} className="px-6 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg font-medium">Scan QR Code</button>
-              </div>
-            ) : (
-              filteredFriends.map((friend) => (
-                <button key={friend.id} onClick={() => setSelectedFriend(friend)} disabled={!friend.conversation_id} className={`w-full flex items-center space-x-3 px-4 py-3 transition-all border-b border-gray-100 dark:border-gray-700/50 ${selectedFriend?.id === friend.id ? 'bg-teal-50 dark:bg-teal-900/20 border-l-4 border-l-teal-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'} disabled:opacity-50 disabled:cursor-not-allowed`}>
-                  <div className="relative flex-shrink-0">
-                    <Avatar src={friend.avatar_url} name={friend.display_name} size="md" />
-                    <span className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white dark:border-gray-800 rounded-full ${friend.is_online ? 'bg-green-500' : 'bg-gray-400'}`} />
-                  </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{friend.display_name}</h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{friend.is_online ? '🟢 Active' : 'Offline'}</p>
-                  </div>
-                  {!friend.conversation_id && <span className="text-xs text-amber-500">No chat</span>}
-                </button>
-              ))
-            )}
-          </div>
+          {/* Friends List */}
+          <FriendsList
+            friends={filteredFriends}
+            selectedId={selectedFriend?.id}
+            onSelect={(friend) => {
+              setSelectedFriend(friend);
+              setShowSidebar(false);
+            }}
+            onAddFriend={() => router.push('/friends/qr')}
+          />
         </aside>
 
-        <main className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900">
+        {/* Main Chat Area */}
+        <main className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-gray-900">
           {!selectedFriend ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center max-w-md px-6">
-                <MessageSquare size={120} className="mx-auto text-gray-300 dark:text-gray-700 mb-8" />
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">SecureChat</h2>
-                <p className="text-gray-600 dark:text-gray-400">End-to-end encrypted messaging.<br />Select a friend to start chatting.</p>
+            <div className="flex-1 flex flex-col items-center justify-center p-6">
+              <div className="w-24 h-24 bg-teal-100 dark:bg-teal-900/30 rounded-full flex items-center justify-center mb-6">
+                <MessageSquare size={48} className="text-teal-600 dark:text-teal-400" />
               </div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Welcome to FlickChat
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 text-center max-w-md">
+                Select a conversation to start messaging
+              </p>
             </div>
           ) : (
             <>
-              <div className="h-16 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6">
-                <div className="flex items-center space-x-3">
-                  <div className="relative">
-                    <Avatar src={selectedFriend.avatar_url} name={selectedFriend.display_name} size="md" />
-                    <span className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white dark:border-gray-800 rounded-full ${selectedFriend.is_online ? 'bg-green-500' : 'bg-gray-400'}`} />
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-semibold text-gray-900 dark:text-white">{selectedFriend.display_name}</h2>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{isTyping ? <span className="text-teal-500">typing...</span> : selectedFriend.is_online ? <span className="text-green-500">Active</span> : 'Offline'}</p>
-                  </div>
-                </div>
+              <ChatHeader
+                friend={selectedFriend}
+                isTyping={isTyping}
+                onMenuClick={() => setShowSidebar(true)}
+                onAudioCall={() => webrtc.startCall('audio')}
+                onVideoCall={() => webrtc.startCall('video')}
+                canCall={!!selectedFriend.conversation_id}
+              />
 
-                <div className="flex items-center space-x-1">
-                  <button onClick={() => webrtc.startCall('audio')} disabled={!selectedFriend.conversation_id} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50" title="Audio call"><Phone size={20} className="text-gray-700 dark:text-gray-300" /></button>
-                  <button onClick={() => webrtc.startCall('video')} disabled={!selectedFriend.conversation_id} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50" title="Video call"><Video size={20} className="text-gray-700 dark:text-gray-300" /></button>
-                </div>
-              </div>
-
+              {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4">
                 {messagesLoading ? (
-                  <div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500" /></div>
+                  <div className="flex items-center justify-center h-full">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-teal-500" />
+                  </div>
                 ) : messages.length === 0 ? (
-                  <div className="flex items-center justify-center h-full"><div className="text-center"><MessageSquare size={64} className="mx-auto text-teal-500 mb-4" /><p className="text-gray-500 dark:text-gray-400">No messages yet</p></div></div>
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <MessageSquare size={56} className="mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+                      <p className="text-gray-500 dark:text-gray-400 text-lg font-medium mb-2">
+                        No messages yet
+                      </p>
+                      <p className="text-gray-400 dark:text-gray-500 text-sm">
+                        Start the conversation with a message
+                      </p>
+                    </div>
+                  </div>
                 ) : (
-                  <div className="space-y-4 max-w-4xl mx-auto">
+                  <div className="space-y-2 max-w-4xl mx-auto">
                     {messages.map((msg) => {
                       const isMe = msg.sender_id === user.id;
                       let content = msg.encrypted_content;
-                      try { content = Buffer.from(msg.encrypted_content, 'base64').toString('utf-8'); } catch (e) {}
+                      try {
+                        content = Buffer.from(msg.encrypted_content, 'base64').toString('utf-8');
+                      } catch (e) {}
 
                       return (
-                        <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[75%] ${isMe ? '' : 'flex items-start space-x-2'}`}>
-                            {!isMe && <Avatar src={selectedFriend.avatar_url} name={selectedFriend.display_name} size="sm" />}
-                            <div>
-                              <div className={`rounded-2xl px-4 py-2 ${isMe ? 'bg-teal-500 text-white rounded-br-none' : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-bl-none'}`}><p className="text-sm">{content}</p></div>
-                              <p className={`text-xs mt-1 ${isMe ? 'text-right text-gray-500' : 'text-gray-400'}`}>{new Date(msg.sent_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
+                        <MessageBubble
+                          key={msg.id}
+                          content={content}
+                          timestamp={msg.sent_at}
+                          isMe={isMe}
+                          senderName={selectedFriend.display_name}
+                          senderAvatar={selectedFriend.avatar_url}
+                          showAvatar={!isMe}
+                          repliedMessage={msg.replied_message}
+                          onReply={() => setReplyingTo(msg)}
+                        />
+                      );
+                    })}
+
+                    {isTyping && (
+                      <div className="flex justify-start">
+                        <div className="flex items-start space-x-2">
+                          <Avatar
+                            src={selectedFriend.avatar_url}
+                            name={selectedFriend.display_name}
+                            size="sm"
+                            className="flex-shrink-0"
+                          />
+                          <div className="bg-white dark:bg-gray-800 rounded-2xl px-5 py-3 shadow-sm">
+                            <div className="flex space-x-1.5">
+                              <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                              <span
+                                className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                                style={{ animationDelay: '200ms' }}
+                              />
+                              <span
+                                className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                                style={{ animationDelay: '400ms' }}
+                              />
                             </div>
                           </div>
                         </div>
-                      );
-                    })}
-                    
-                    {isTyping && (
-                      <div className="flex justify-start"><div className="flex items-start space-x-2"><Avatar src={selectedFriend.avatar_url} name={selectedFriend.display_name} size="sm" /><div className="bg-white dark:bg-gray-800 rounded-2xl px-4 py-3"><div className="flex space-x-1.5"><span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" /><span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '200ms' }} /><span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '400ms' }} /></div></div></div></div>
+                      </div>
                     )}
-                    
+
                     <div ref={messagesEndRef} />
                   </div>
                 )}
               </div>
 
-              <form onSubmit={handleSendMessage} className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-                <div className="flex items-center space-x-3 max-w-4xl mx-auto">
-                  <button type="button" className="p-2 text-gray-500 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"><Smile size={22} /></button>
-                  <button type="button" className="p-2 text-gray-500 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"><Paperclip size={22} /></button>
-                  <input type="text" value={messageInput} onChange={handleInputChange} placeholder={isConnected ? "Type a message..." : "Connecting..."} disabled={!isConnected} className="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 rounded-full text-sm text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50" />
-                  <button type="submit" disabled={!isConnected || !messageInput.trim()} className="p-2.5 bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white rounded-full disabled:cursor-not-allowed"><Send size={20} /></button>
-                </div>
-              </form>
+              <ChatInput
+                onSend={handleSendMessage}
+                onTyping={handleTyping}
+                disabled={!isConnected}
+                replyingTo={replyingTo}
+                onCancelReply={() => setReplyingTo(null)}
+              />
             </>
           )}
         </main>
       </div>
 
-      {/* ✅ GLOBAL Video Call Overlay - works even when no friend selected */}
+      {/* Video Call Overlay */}
       {callFriend && callFriend.conversation_id && (
         <VideoCallOverlay
           localStream={webrtc.localStream}

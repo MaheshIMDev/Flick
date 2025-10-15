@@ -1,3 +1,8 @@
+/**
+ * Teal-Green Dark Mode Theme Colors
+ * Matching mobile app design
+ */
+
 export const Colors = {
     light: {
       background: '#FFFFFF',
@@ -12,7 +17,7 @@ export const Colors = {
       teal: {
         50: '#E6FFFA',
         100: '#B2F5EA',
-        500: '#14B8A6', 
+        500: '#14B8A6', // Primary teal
         600: '#0D9488',
         700: '#0F766E',
       },
@@ -21,7 +26,7 @@ export const Colors = {
       warning: '#F59E0B',
     },
     dark: {
-      background: '#121212',
+      background: '#121212', // Deep charcoal
       surface: '#1E1E1E',
       card: '#2A2A2A',
       text: {
@@ -33,7 +38,7 @@ export const Colors = {
       teal: {
         50: '#E6FFFA',
         100: '#B2F5EA',
-        500: '#14B8A6', 
+        500: '#14B8A6', // Primary teal
         600: '#0D9488',
         700: '#0F766E',
       },

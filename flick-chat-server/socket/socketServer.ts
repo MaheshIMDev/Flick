@@ -40,10 +40,23 @@ export function initializeSocketIO(httpServer: HTTPServer) {
     console.log(`✅ User connected: ${userEmail} (${socket.id})`);
 
     try {
-      // ==================== SETUP ====================
+      // ==================== SETUP & CLEANUP ====================
+      // Clean up any stale sockets for this user first
+      const existingSockets = await RedisService.getUserSockets(userId);
+      if (existingSockets.length > 5) {
+        console.warn(`⚠️  User ${userId} has ${existingSockets.length} sockets, cleaning up old ones`);
+        // Keep only the 3 most recent, remove others
+        const socketsToRemove = existingSockets.slice(0, -3);
+        for (const oldSocket of socketsToRemove) {
+          await RedisService.removeUserSocket(userId, oldSocket);
+        }
+        console.log(`🧹 Cleaned up ${socketsToRemove.length} old sockets for user ${userId}`);
+      }
+
       // Mark user as online
       await RedisService.setUserOnline(userId, 30);
       await RedisService.addUserSocket(userId, socket.id);
+      console.log(`✅ Added socket ${socket.id} for user ${userId}`);
 
       // Join user's personal room
       socket.join(`user:${userId}`);
@@ -185,18 +198,20 @@ export function initializeSocketIO(httpServer: HTTPServer) {
         clearInterval(heartbeatInterval);
 
         try {
+          // Remove this specific socket
           await RedisService.removeUserSocket(userId, socket.id);
+          console.log(`🗑️  Removed socket ${socket.id} for user ${userId}`);
 
-          // Check if user has other active sockets
+          // Get remaining sockets
           const userSockets = await RedisService.getUserSockets(userId);
           console.log(`🔍 User ${userId} has ${userSockets.length} remaining sockets`);
 
+          // If no sockets left, mark offline
           if (userSockets.length === 0) {
-            // User is fully offline
             await RedisService.setUserOffline(userId);
             console.log(`🔴 User ${userId} marked as OFFLINE in Redis`);
 
-            // ✅ BROADCAST OFFLINE STATUS TO FRIENDS
+            // Broadcast offline status to friends
             await broadcastToFriends(io, userId, 'friend_offline', {
               userId,
               lastSeen: Date.now(),
@@ -214,9 +229,23 @@ export function initializeSocketIO(httpServer: HTTPServer) {
                 });
               }
             }
+          } else {
+            console.log(`⚠️  User ${userId} still has ${userSockets.length} active connections, keeping online`);
           }
         } catch (error) {
-          console.error('disconnect cleanup error:', error);
+          console.error('❌ Disconnect cleanup error:', error);
+          
+          // Force cleanup on error
+          try {
+            await RedisService.setUserOffline(userId);
+            await broadcastToFriends(io, userId, 'friend_offline', {
+              userId,
+              lastSeen: Date.now(),
+            });
+            console.log(`🔴 Force marked user ${userId} offline after error`);
+          } catch (fallbackError) {
+            console.error('❌ Fallback cleanup failed:', fallbackError);
+          }
         }
       });
 

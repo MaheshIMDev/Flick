@@ -22,7 +22,7 @@ interface AuthContextType {
   logout: () => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+  const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -37,21 +37,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = localStorage.getItem('accessToken');
       
       if (!token) {
-        ;
+        console.log('⚠️ No token found');
         setLoading(false);
         return;
       }
 
-      ;
+      console.log('🔍 Checking auth...');
       
       const response = await api.get('/auth/profile');
-       response.data);
+      console.log('✅ Profile:', response.data);
       
       setUser(response.data);
       initializeSocket(token);
       
     } catch (error: any) {
-       error.response?.status);
+      console.error('❌ Auth check failed:', error.response?.status);
       
       if (error.response?.status === 401) {
         localStorage.removeItem('accessToken');
@@ -64,12 +64,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
-       email);
+      console.log('🔐 Logging in:', email);
       
       const response = await api.post('/auth/login', { email, password });
       const { access_token, refresh_token } = response.data;
 
-      ;
+      console.log('✅ Login response received');
       
       // Save tokens
       localStorage.setItem('accessToken', access_token);
@@ -84,21 +84,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Initialize socket
       initializeSocket(access_token);
       
-      ;
+      console.log('✅ Login successful, redirecting...');
       
       setTimeout(() => {
         window.location.href = '/dashboard';
       }, 100);
       
     } catch (error: any) {
-       error);
+      console.error('❌ Login error:', error);
       throw new Error(error.response?.data?.error || 'Login failed');
     }
   };
 
   const signup = async (email: string, password: string, username: string, display_name?: string) => {
     try {
-       email, username);
+      console.log('📝 Signing up:', email, username);
       
       const response = await api.post('/auth/signup', { 
         email, 
@@ -109,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       const { access_token, refresh_token } = response.data;
 
-      ;
+      console.log('✅ Signup response received');
       
       // Save tokens
       localStorage.setItem('accessToken', access_token);
@@ -124,14 +124,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Initialize socket
       initializeSocket(access_token);
       
-      ;
+      console.log('✅ Signup successful, redirecting...');
       
       setTimeout(() => {
         window.location.href = '/dashboard';
       }, 100);
       
     } catch (error: any) {
-       error);
+      console.error('❌ Signup error:', error);
       throw new Error(error.response?.data?.error || 'Signup failed');
     }
   };

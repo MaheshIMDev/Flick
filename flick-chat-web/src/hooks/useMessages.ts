@@ -48,7 +48,7 @@ export function useMessages(conversationId: string) {
         setError(null);
       } catch (err: any) {
         setError(err.response?.data?.error || 'Failed to load messages');
-        // Fetch error err);
+        console.error('Fetch messages error:', err);
       } finally {
         setLoading(false);
       }
