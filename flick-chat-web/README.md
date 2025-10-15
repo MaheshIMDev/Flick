@@ -1,6 +1,6 @@
 # FlickChat - Web Frontend
 
-Real-time encrypted chat application with video/audio calling built with Next.js 14.
+Real-time encrypted chat application with video/audio calling built with Next.js.
 
 ## ✨ Features
 
